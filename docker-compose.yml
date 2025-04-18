@@ -1,0 +1,171 @@
+services:
+  pipeline_extract:
+    image: pipeline_base
+    pull_policy: never
+    container_name: pipeline_extract
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: broker-1:9092,broker-2:9092,broker-3:9092
+    volumes:
+      - ./config.yml:/config.yml
+    depends_on:
+      - controller
+      - broker-1
+      - broker-2
+      - broker-3
+      - clickhouse
+    env_file:
+      - services/websocket/.env
+      - services/kafka/.env
+    command: python -c 'import scripts; scripts.invoke_extract()'
+    profiles: ["pipeline"]
+
+  pipeline_transform:
+    image: pipeline_base
+    pull_policy: never
+    container_name: pipeline_transform
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: broker-1:9092,broker-2:9092,broker-3:9092
+    volumes:
+      - ./config.yml:/config.yml
+    depends_on:
+      - controller
+      - broker-1
+      - broker-2
+      - broker-3
+      - clickhouse
+    env_file:
+      - services/spark/.env
+      - services/kafka/.env
+    command: python -c 'import scripts; scripts.invoke_transform()'
+    profiles: ["pipeline"]
+
+  pipeline_load:
+    image: pipeline_base
+    pull_policy: never
+    container_name: pipeline_load
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: broker-1:9092,broker-2:9092,broker-3:9092
+    volumes:
+      - ./config.yml:/config.yml
+    depends_on:
+      - controller
+      - broker-1
+      - broker-2
+      - broker-3
+      - clickhouse
+    env_file:
+      - services/clickhouse/.env
+      - services/spark/.env
+    command: python -c 'import scripts; scripts.invoke_load()'
+    profiles: ["pipeline"]
+
+  clickhouse:
+    image: clickhouse
+    pull_policy: never
+    container_name: clickhouse
+    build:
+      context: ./services/clickhouse
+      dockerfile: Dockerfile
+    ports:
+      - 9000:9000
+      - 8123:8123
+    environment:
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    env_file:
+      - services/clickhouse/.env
+
+  controller:
+    image: kafka
+    container_name: controller
+    build:
+      context: ./services/kafka
+      dockerfile: Dockerfile
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@controller:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: CONTROLLER://:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT
+      KAFKA_KRAFT_CLUSTER_ID: CLUSTER_ID_1
+    env_file:
+      - services/kafka/.env
+
+  broker-1:
+    image: kafka
+    pull_policy: never
+    container_name: broker-1
+    ports:
+      - 9094:9094
+    environment:
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: broker
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@controller:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: PLAINTEXT://:9092,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker-1:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_KRAFT_CLUSTER_ID: CLUSTER_ID_1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+    env_file:
+      - services/kafka/.env
+
+  broker-2:
+    image: kafka
+    pull_policy: never
+    container_name: broker-2
+    ports:
+      - 9095:9095
+    environment:
+      KAFKA_NODE_ID: 3
+      KAFKA_PROCESS_ROLES: broker
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@controller:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: PLAINTEXT://:9092,EXTERNAL://:9095
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker-2:9092,EXTERNAL://localhost:9095
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_KRAFT_CLUSTER_ID: CLUSTER_ID_1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+    env_file:
+      - services/kafka/.env
+
+  broker-3:
+    image: kafka
+    pull_policy: never
+    container_name: broker-3
+    ports:
+      - 9096:9096
+    environment:
+      KAFKA_NODE_ID: 4
+      KAFKA_PROCESS_ROLES: broker
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@controller:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: PLAINTEXT://:9092,EXTERNAL://:9096
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker-3:9092,EXTERNAL://localhost:9096
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_KRAFT_CLUSTER_ID: CLUSTER_ID_1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+    env_file:
+      - services/kafka/.env
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - 8080:8080
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local_cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker-1:9092,broker-2:9092,broker-3:9092
+    depends_on:
+      - broker-1
+      - broker-2
+      - broker-3
+
+volumes:
+  clickhouse_data:

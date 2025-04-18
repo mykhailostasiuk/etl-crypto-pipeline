@@ -1,0 +1,1 @@
+FROM clickhouse:lts-jammy

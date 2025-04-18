@@ -1,0 +1,13 @@
+markets:
+  - BTCUSDT
+  - ETHUSDT
+
+endpoints:
+  - aggTrade
+  - trade
+  - kline_3m
+  - kline_5m
+  - miniTicker
+  - ticker
+  - avgPrice
+  - depth
